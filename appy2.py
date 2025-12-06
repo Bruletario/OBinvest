@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-from bcb import Expectativas
+from bcb import sgs, Expectativas # Voltamos a usar o sgs da biblioteca
 import warnings
 import time
-import requests # Necessário para "enganar" o servidor do BC
+# Remover import requests (simplifica o ambiente)
 
 # ==============================================================================
 # 1. SETUP E ESTILIZACAO
@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore")
 
 C_SIDEBAR = "#0F172A"
 C_MAIN = "#F8FAFC"
-C_ACCENT = "#F97316"
+C_ACCENT = "#F97316" 
 C_TEXT_MAIN = "#1E293B"
 C_TEXT_SIDE = "#FFFFFF"
 C_INPUT_BG = "#1E293B"
@@ -139,48 +139,20 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. FUNCOES DE DADOS (ROBUSTAS)
+# 2. FUNCOES DE DADOS (AGORA MAIS RÁPIDAS E SIMPLES)
 # ==============================================================================
-
-# Função auxiliar para pegar JSON do BC com Header de navegador
-def fetch_bcb_direct(code, name):
-    url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{code}/dados?formato=json"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status() # Garante que deu 200 OK
-        df = pd.DataFrame(response.json())
-        df['data'] = pd.to_datetime(df['data'], format='%d/%m/%Y')
-        df['valor'] = pd.to_numeric(df['valor'])
-        df = df.set_index('data')
-        df.columns = [name]
-        return df
-    except Exception as e:
-        return None
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_data():
-    # Tenta conectar via requisição direta com User-Agent
+    # Tenta conectar apenas 1 vez para ser rápido e não causar TIMEOUT
     try:
         hoje = datetime.today()
-        start_filter = (hoje - timedelta(days=365*10))
-        
-        # Busca Selic (432) e IPCA (13522) separadamente
-        df_selic = fetch_bcb_direct(432, "Selic")
-        df_ipca = fetch_bcb_direct(13522, "IPCA")
-        
-        if df_selic is not None and df_ipca is not None:
-            # Junta os dois
-            df = df_selic.join(df_ipca, how='inner')
-            # Filtra data
-            df = df[df.index >= start_filter]
+        start = (hoje - timedelta(days=365*10)).strftime("%Y-%m-%d")
+        df = sgs.get({"Selic": 432, "IPCA": 13522}, start=start)
+        if df is not None and not df.empty:
             return df.ffill().dropna()
-    except:
-        pass
-    
-    # Se falhar tudo, retorna vazio (sem dados falsos)
+    except Exception:
+        pass # Não usa loop nem sleep para evitar o Timeout
     return pd.DataFrame()
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -190,21 +162,26 @@ def get_focus():
         ep = em.get_endpoint('ExpectativasMercadoInflacao12Meses')
         dt_lim = (datetime.now()-timedelta(days=30)).strftime('%Y-%m-%d')
         df = (ep.query().filter(ep.Data >= dt_lim).filter(ep.Suavizada == 'S').filter(ep.baseCalculo == 0).collect())
+        # Mantém fallback simples para o Simulador
         return 4.5 if df.empty else float(df.sort_values('Data').iloc[-1]['Mediana'])
     except: return 4.5
 
 # ==============================================================================
-# 3. INTERFACE
+# 3. INTERFACE E NAVEGAÇÃO
 # ==============================================================================
+
 df = get_data()
 ipca_proj = get_focus()
 
-if df.empty:
-    st.error("Erro de conexão com o Banco Central. O servidor recusou a conexão.")
-    if st.button("Tentar Novamente"):
-        st.cache_data.clear()
-        st.rerun()
-    st.stop()
+# --- Fallback de Variáveis ---
+# Se o DataFrame estiver vazio, usa valores de referência para o Simulador
+if not df.empty:
+    selic_h = df["Selic"].iloc[-1]
+    ipca_h = df["IPCA"].iloc[-1]
+else:
+    # Valores de referência para o Simulador não quebrar
+    selic_h = 11.25 
+    ipca_h = 4.50 
 
 with st.sidebar:
     st.markdown(f"<div style='color:{C_ACCENT}; font-weight:800; font-size:1.2rem; margin-bottom:20px; padding-left:5px;'>MONITOR</div>", unsafe_allow_html=True)
@@ -216,26 +193,39 @@ with st.sidebar:
     if nav == "Dashboard":
         with st.form("f_filtros"):
             st.markdown("**Período do Gráfico**")
-            d_max = df.index.max().date()
-            d_min = df.index.min().date()
-            start_def = d_max - timedelta(days=730)
-            if start_def < d_min: start_def = d_min
             
-            d_ini = st.date_input("Início", start_def, min_value=d_min, max_value=d_max, format="DD/MM/YYYY")
-            d_fim = st.date_input("Fim", d_max, min_value=d_min, max_value=d_max, format="DD/MM/YYYY")
-            st.markdown("###")
-            st.form_submit_button("ATUALIZAR GRÁFICO")
-        
-        mask = (df.index.date >= d_ini) & (df.index.date <= d_fim)
-        df_filtered = df.loc[mask]
-
+            # Checa se há dados para habilitar o filtro
+            if not df.empty:
+                d_max = df.index.max().date()
+                d_min = df.index.min().date()
+                start_def = d_max - timedelta(days=730)
+                if start_def < d_min: start_def = d_min
+                
+                d_ini = st.date_input("Início", start_def, min_value=d_min, max_value=d_max, format="DD/MM/YYYY")
+                d_fim = st.date_input("Fim", d_max, min_value=d_min, max_value=d_max, format="DD/MM/YYYY")
+                
+                if st.form_submit_button("ATUALIZAR GRÁFICO"):
+                    mask = (df.index.date >= d_ini) & (df.index.date <= d_fim)
+                    df_filtered = df.loc[mask]
+            else:
+                st.warning("Filtros indisponíveis.")
+                
 # --- DASHBOARD ---
 if nav == "Dashboard":
     st.markdown("<h1>Monitor de Mercado</h1>", unsafe_allow_html=True)
     st.markdown("###")
 
+    # Tratamento de erro final do Dashboard (Sem dados, sem Dashboard)
+    if df.empty:
+        st.error("Erro de conexão com o Banco Central. O Dashboard está indisponível.")
+        st.warning("⚠️ O Simulador e o Glossário continuam ativos. Tente recarregar a página.")
+        if st.button("Recarregar Dados (Limpar Cache)"):
+            st.cache_data.clear()
+            st.rerun()
+        st.stop()
+        
     if df_filtered.empty:
-        st.warning("Sem dados para o período.")
+        st.warning("Nenhum dado encontrado para o período selecionado.")
         st.stop()
 
     last = df_filtered.iloc[-1]
@@ -264,15 +254,7 @@ if nav == "Dashboard":
         fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered["Selic"], name="Selic", line=dict(color=C_SELIC, width=3)))
         fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered["IPCA"], name="IPCA", line=dict(color=C_ACCENT, width=3)))
         
-        fig.update_layout(
-            template="plotly_white", 
-            height=320,
-            margin=dict(t=20, l=10, r=10, b=10),
-            legend=dict(orientation="h", y=1.1, x=0),
-            hovermode="x unified",
-            xaxis=dict(showgrid=False),
-            yaxis=dict(showgrid=True, gridcolor="#E2E8F0", ticksuffix="%")
-        )
+        fig.update_layout(template="plotly_white", height=320, margin=dict(t=20, l=10, r=10, b=10), legend=dict(orientation="h", y=1.1, x=0), hovermode="x unified", xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor="#E2E8F0", ticksuffix="%"))
         st.plotly_chart(fig, use_container_width=True)
 
     # Tabela
@@ -314,6 +296,9 @@ if nav == "Dashboard":
 # --- SIMULADOR ---
 elif nav == "Simulador":
     st.markdown("<h1>Simulador de Rentabilidade</h1>", unsafe_allow_html=True)
+    if df.empty:
+        st.info("ℹ️ Usando taxas de referência (últimos valores conhecidos) pois a API do BC está indisponível.")
+        
     st.markdown("###")
     col_in, col_out = st.columns([1.2, 2])
     with col_in:
@@ -324,7 +309,6 @@ elif nav == "Simulador":
         st.markdown("#### Indexador")
         tipo = st.selectbox("Escolha o índice", ["Pós-fixado (CDI)", "IPCA +", "Pré-fixado"], label_visibility="collapsed")
         
-        selic_h = df["Selic"].iloc[-1]
         if tipo == "Pós-fixado (CDI)":
             pct = st.number_input("Rentabilidade (% do CDI)", min_value=0.0, value=100.0)
             taxa = selic_h * (pct/100)
@@ -332,7 +316,7 @@ elif nav == "Simulador":
         elif tipo == "IPCA +":
             fx = st.number_input("Taxa Fixa (IPCA + %)", min_value=0.0, value=6.0)
             taxa = ((1+ipca_proj/100)*(1+fx/100)-1)*100
-            st.caption(f"IPCA Proj: {ipca_proj:.2f}% a.a.")
+            st.caption(f"IPCA Projetado (Focus): {ipca_proj:.2f}% a.a.")
         else:
             taxa = st.number_input("Taxa Pré-fixada (% a.a.)", min_value=0.0, value=12.0)
     
@@ -349,11 +333,7 @@ elif nav == "Simulador":
         st.markdown("#### Resultado Projetado")
         r1, r2, r3 = st.columns(3)
         def result_card(col, label, value, color):
-            col.markdown(f"""
-            <div style="background-color:white; padding:15px; border-radius:8px; border:1px solid #E2E8F0; text-align:center;">
-                <div style="font-size:0.8rem; color:#64748B; font-weight:bold; margin-bottom:5px;">{label}</div>
-                <div style="font-size:1.4rem; color:{color}; font-weight:800;">{value}</div>
-            </div>""", unsafe_allow_html=True)
+            col.markdown(f"""<div style="background-color:white; padding:15px; border-radius:8px; border:1px solid #E2E8F0; text-align:center;"><div style="font-size:0.8rem; color:#64748B; font-weight:bold; margin-bottom:5px;">{label}</div><div style="font-size:1.4rem; color:{color}; font-weight:800;">{value}</div></div>""", unsafe_allow_html=True)
         result_card(r1, "TOTAL INVESTIDO", f"R$ {inv:,.2f}", "#334155")
         result_card(r2, "SALDO BRUTO", f"R$ {bal:,.2f}", C_ACCENT)
         result_card(r3, "RENDIMENTO", f"R$ {bal-inv:,.2f}", C_REAL)
