@@ -243,4 +243,144 @@ if nav == "Dashboard":
     v_real = ((1 + v_selic/100) / (1 + v_ipca/100) - 1) * 100
     ref = df_filtered.index[-1].strftime('%d/%m/%Y')
 
-    c1, c2, c3 = st.
+    c1, c2, c3 = st.columns(3)
+    def card(col, lbl, val, sub, border):
+        col.markdown(f"""
+        <div class="metric-card" style="border-left: 5px solid {border};">
+            <div class="metric-label">{lbl}</div>
+            <div class="metric-value">{val}</div>
+            <div class="metric-sub">{sub}</div>
+        </div>""", unsafe_allow_html=True)
+
+    card(c1, "TAXA SELIC", f"{v_selic:.2f}%", f"Ref: {ref}", C_SELIC)
+    card(c2, "IPCA (12M)", f"{v_ipca:.2f}%", "Inflação Acumulada", C_IPCA)
+    card(c3, "JURO REAL", f"{v_real:.2f}%", "Acima da Inflação", C_REAL)
+
+    st.markdown("---") 
+
+    st.markdown("### Evolução Histórica")
+    with st.container():
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered["Selic"], name="Selic", line=dict(color=C_SELIC, width=3)))
+        fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered["IPCA"], name="IPCA", line=dict(color=C_ACCENT, width=3)))
+        
+        fig.update_layout(
+            template="plotly_white", 
+            height=320,
+            margin=dict(t=20, l=10, r=10, b=10),
+            legend=dict(orientation="h", y=1.1, x=0),
+            hovermode="x unified",
+            xaxis=dict(showgrid=False),
+            yaxis=dict(showgrid=True, gridcolor="#E2E8F0", ticksuffix="%")
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Tabela
+    if 'table_page' not in st.session_state: st.session_state.table_page = 0
+    df_rev = df.resample('M').last().sort_index(ascending=False).copy()
+    df_rev["Juro Real"] = ((1 + df_rev["Selic"]/100) / (1 + df_rev["IPCA"]/100) - 1) * 100
+    
+    ITENS = 6
+    total = len(df_rev)
+    start = st.session_state.table_page * ITENS
+    end = start + ITENS
+    df_view = df_rev.iloc[start:end]
+
+    if not df_view.empty:
+        per_str = f"{df_view.index[-1].strftime('%d/%m/%Y')} - {df_view.index[0].strftime('%d/%m/%Y')}"
+    else: per_str = ""
+
+    st.markdown("---")
+    col_t_1, col_t_2, col_t_3 = st.columns([8, 1, 1])
+    with col_t_1: st.markdown(f"### Dados Detalhados <span style='font-size:1rem; color:#64748B; font-weight:400; margin-left:10px'>({per_str})</span>", unsafe_allow_html=True)
+    with col_t_2:
+        if st.button("<", key="btn_prev", disabled=(st.session_state.table_page == 0)):
+            st.session_state.table_page -= 1
+            st.rerun()
+    with col_t_3:
+        if st.button(">", key="btn_next", disabled=(end >= total)):
+            st.session_state.table_page += 1
+            st.rerun()
+
+    df_view.index = df_view.index.strftime('%d/%m/%Y')
+    st.dataframe(
+        df_view.style.format("{:.2f}%")
+        .applymap(lambda x: f"color:{C_SELIC};font-weight:600", subset=["Selic"])
+        .applymap(lambda x: f"color:{C_IPCA};font-weight:600", subset=["IPCA"])
+        .applymap(lambda x: f"color:{C_REAL};font-weight:600", subset=["Juro Real"]),
+        use_container_width=True, height=260
+    )
+
+# --- SIMULADOR ---
+elif nav == "Simulador":
+    st.markdown("<h1>Simulador de Rentabilidade</h1>", unsafe_allow_html=True)
+    st.markdown("###")
+    col_in, col_out = st.columns([1.2, 2])
+    with col_in:
+        st.markdown("#### Parâmetros")
+        ini = st.number_input("Aporte Inicial (R$)", min_value=0.0, value=1000.0, step=100.0, format="%.2f")
+        mes = st.number_input("Aporte Mensal (R$)", min_value=0.0, value=100.0, step=50.0, format="%.2f")
+        anos = st.slider("Tempo (Anos)", 1, 30, 5)
+        st.markdown("#### Indexador")
+        tipo = st.selectbox("Escolha o índice", ["Pós-fixado (CDI)", "IPCA +", "Pré-fixado"], label_visibility="collapsed")
+        
+        selic_h = df["Selic"].iloc[-1]
+        if tipo == "Pós-fixado (CDI)":
+            pct = st.number_input("Rentabilidade (% do CDI)", min_value=0.0, value=100.0)
+            taxa = selic_h * (pct/100)
+            st.caption(f"CDI Atual: {selic_h:.2f}% a.a.")
+        elif tipo == "IPCA +":
+            fx = st.number_input("Taxa Fixa (IPCA + %)", min_value=0.0, value=6.0)
+            taxa = ((1+ipca_proj/100)*(1+fx/100)-1)*100
+            st.caption(f"IPCA Proj: {ipca_proj:.2f}% a.a.")
+        else:
+            taxa = st.number_input("Taxa Pré-fixada (% a.a.)", min_value=0.0, value=12.0)
+    
+    periods = anos * 12
+    r_mensal = (1+taxa/100)**(1/12)-1
+    bal, inv = ini, ini
+    evol = [ini]
+    for _ in range(periods):
+        bal = bal * (1+r_mensal) + mes
+        inv += mes
+        evol.append(bal)
+        
+    with col_out:
+        st.markdown("#### Resultado Projetado")
+        r1, r2, r3 = st.columns(3)
+        def result_card(col, label, value, color):
+            col.markdown(f"""
+            <div style="background-color:white; padding:15px; border-radius:8px; border:1px solid #E2E8F0; text-align:center;">
+                <div style="font-size:0.8rem; color:#64748B; font-weight:bold; margin-bottom:5px;">{label}</div>
+                <div style="font-size:1.4rem; color:{color}; font-weight:800;">{value}</div>
+            </div>""", unsafe_allow_html=True)
+        result_card(r1, "TOTAL INVESTIDO", f"R$ {inv:,.2f}", "#334155")
+        result_card(r2, "SALDO BRUTO", f"R$ {bal:,.2f}", C_ACCENT)
+        result_card(r3, "RENDIMENTO", f"R$ {bal-inv:,.2f}", C_REAL)
+        st.markdown("###")
+        fig_s = go.Figure()
+        fig_s.add_trace(go.Scatter(y=evol, x=list(range(len(evol))), fill='tozeroy', line=dict(color=C_ACCENT, width=3), name="Patrimônio"))
+        fig_s.update_layout(template="plotly_white", height=350, margin=dict(t=20,l=0,r=0,b=0), xaxis=dict(showgrid=False, title="Meses"), yaxis=dict(showgrid=True, gridcolor="#E2E8F0", tickprefix="R$ "))
+        st.plotly_chart(fig_s, use_container_width=True)
+
+# --- GLOSSÁRIO ---
+elif nav == "Glossário":
+    st.markdown("<h1>Glossário Financeiro</h1>", unsafe_allow_html=True)
+    def gloss_card(title, text):
+        st.markdown(f"""<div class="glossary-card"><div class="gloss-title">{title}</div><div class="gloss-text">{text}</div></div>""", unsafe_allow_html=True)
+    st.markdown("### Indicadores de Mercado")
+    c1, c2 = st.columns(2)
+    with c1:
+        gloss_card("Taxa Selic", "É a taxa básica de juros da economia brasileira.")
+        st.markdown("###")
+        gloss_card("IPCA", "Índice Nacional de Preços ao Consumidor Amplo.")
+    with c2:
+        gloss_card("CDI", "Taxa que os bancos cobram para emprestar dinheiro entre si.")
+        st.markdown("###")
+        gloss_card("Juro Real", "Ganho acima da inflação.")
+    st.markdown("---")
+    st.markdown("### Tipos de Rentabilidade")
+    c3, c4, c5 = st.columns(3)
+    with c3: gloss_card("Pós-fixado", "A rentabilidade segue um índice (ex: 100% do CDI).")
+    with c4: gloss_card("Pré-fixado", "A taxa é combinada na hora da compra.")
+    with c5: gloss_card("Híbrido (IPCA+)", "Paga uma parte fixa mais a inflação.")
