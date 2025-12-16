@@ -2,16 +2,9 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-from bcb import Expectativas
+from bcb import sgs, Expectativas
 import warnings
 import time
-import os
-import requests
-import io # Importante para ler o texto como arquivo
-
-# Configurações de Cache
-DATA_FILE = "market_data_cache.csv" # Arquivo para salvar os dados
-CACHE_EXPIRATION = 24 * 3600 # 24 horas
 
 # ==============================================================================
 # 1. SETUP E ESTILIZACAO
@@ -175,87 +168,33 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. FUNCOES DE DADOS (VERSÃO CSV ROBUSTA)
+# 2. FUNCOES DE DADOS (INTEGRACAO COM APIS)
 # ==============================================================================
 
-# Função auxiliar que baixa o CSV direto (imitando um navegador)
-def fetch_bcb_csv(codigo, nome_serie):
-    # Endpoint CSV é mais estável que o JSON
-    url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados?formato=csv"
-    
-    # Headers completos para parecer um Chrome real
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Connection": "keep-alive"
-    }
-    
-    try:
-        # verify=True é o padrão, mas se der erro de SSL localmente, o except pega
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        
-        # Lê o CSV retornado (formato brasileiro: ; e ,)
-        df = pd.read_csv(io.StringIO(response.text), sep=';', decimal=',')
-        
-        # Tratamento de colunas e datas
-        df.columns = ['data', nome_serie]
-        df['data'] = pd.to_datetime(df['data'], format='%d/%m/%Y', errors='coerce')
-        df.set_index('data', inplace=True)
-        return df[[nome_serie]] # Retorna só a coluna de valor
-        
-    except Exception:
-        return None
-
-@st.cache_data(ttl=CACHE_EXPIRATION, show_spinner=False)
+# pega selic e ipca historico do banco central
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_data():
-    """Busca dados via CSV do BC. Se falhar, carrega cache."""
-    df = pd.DataFrame()
-    api_failed = True
-    
-    # 1. Tenta buscar a API via CSV
-    for _ in range(3): # 3 tentativas
+    # retry logic: tenta 3 vezes se der pau na conexao
+    for _ in range(3):
         try:
-            # Baixa Selic e IPCA
-            df_selic = fetch_bcb_csv(432, "Selic")
-            df_ipca = fetch_bcb_csv(13522, "IPCA")
-            
-            if df_selic is not None and df_ipca is not None:
-                # Junta os dados
-                df_api = df_selic.join(df_ipca, how='inner').ffill().dropna()
-                
-                # Filtra os ultimos 10 anos
-                hoje = datetime.today()
-                start = (hoje - timedelta(days=365*10))
-                df_api = df_api[df_api.index >= start]
-
-                if not df_api.empty:
-                    df = df_api
-                    df.to_csv(DATA_FILE) # Salva cache
-                    api_failed = False
-                    break # Sucesso
+            hoje = datetime.today()
+            # pegando 10 anos pra tras, acho q ta bom de historico
+            start = (hoje - timedelta(days=365*10)).strftime("%Y-%m-%d")
+            # codigos sgs: 432=selic meta, 13522=ipca acumulado 12m
+            df = sgs.get({"Selic": 432, "IPCA": 13522}, start=start).ffill().dropna()
+            if not df.empty: return df
         except:
-            time.sleep(1)
+            time.sleep(0.5) # espera um pouquinho antes de tentar de novo
             continue
-            
-    # 2. Se a API falhou, tenta carregar o último cache salvo
-    if api_failed and os.path.exists(DATA_FILE):
-        try:
-            df = pd.read_csv(DATA_FILE, index_col=0, parse_dates=True)
-            st.toast(f"Usando dados offline de {df.index[-1].strftime('%d/%m/%Y')}", icon="ℹ️")
-        except:
-            return pd.DataFrame() 
-
-    return df 
+    return pd.DataFrame() # retorna vazio se falhar tudo
 
 # pega expectativa futura do relatorio focus
-@st.cache_data(ttl=CACHE_EXPIRATION, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_focus():
-    """Busca Focus, limitado também ao TTL de 24h."""
     try:
         em = Expectativas()
         ep = em.get_endpoint('ExpectativasMercadoInflacao12Meses')
+        # pega ultimos 30 dias pra garantir q tem dado recente
         dt_lim = (datetime.now()-timedelta(days=30)).strftime('%Y-%m-%d')
         df = (ep.query().filter(ep.Data >= dt_lim).filter(ep.Suavizada == 'S').filter(ep.baseCalculo == 0).collect())
         # se der vazio, usa 4.5 como fallback de seguranca pra nao quebrar a tela
@@ -268,22 +207,16 @@ def get_focus():
 df = get_data()
 ipca_proj = get_focus()
 
-# --- Fallback de Variáveis para o Simulador (Se df vazio) ---
-if not df.empty:
-    selic_h = df["Selic"].iloc[-1]
-else:
-    selic_h = 11.25 
-
-# Tratamento de erro principal
-if df.empty and st.session_state.get('nav') == "Dashboard":
-    st.error("Erro de conexão persistente com o Banco Central.")
-    st.warning("O site não conseguiu baixar os dados recentes nem encontrou cache antigo.")
+# trava tudo se nao tiver dados, melhor que mostrar tela quebrada
+if df.empty:
+    st.error("Erro de conexão com o Banco Central. Tente recarregar a página.")
+    st.stop()
 
 with st.sidebar:
     st.markdown(f"<div style='color:{C_ACCENT}; font-weight:800; font-size:1.2rem; margin-bottom:20px; padding-left:5px;'>MONITOR</div>", unsafe_allow_html=True)
     
     # menu principal
-    nav = st.radio("Navegação", ["Dashboard", "Simulador", "Glossário"], label_visibility="collapsed", key='nav')
+    nav = st.radio("Navegação", ["Dashboard", "Simulador", "Glossário"], label_visibility="collapsed")
     st.markdown("<div style='margin-top:20px; border-top:1px solid #1E293B'></div>", unsafe_allow_html=True)
     
     df_filtered = df.copy()
@@ -292,33 +225,27 @@ with st.sidebar:
     if nav == "Dashboard":
         with st.form("f_filtros"):
             st.markdown("**Período do Gráfico**")
+            d_max = df.index.max().date()
+            d_min = df.index.min().date()
             
-            # Checa se há dados para habilitar o filtro
-            if not df.empty:
-                d_max = df.index.max().date()
-                d_min = df.index.min().date()
-                start_def = d_max - timedelta(days=730)
-                if start_def < d_min: start_def = d_min
-                
-                d_ini = st.date_input("Início", start_def, min_value=d_min, max_value=d_max, format="DD/MM/YYYY")
-                d_fim = st.date_input("Fim", d_max, min_value=d_min, max_value=d_max, format="DD/MM/YYYY")
-                st.markdown("###")
-                
-                if st.form_submit_button("ATUALIZAR GRÁFICO"):
-                    mask = (df.index.date >= d_ini) & (df.index.date <= d_fim)
-                    df_filtered = df.loc[mask]
-            else:
-                 st.markdown("<p style='color: #F97316; font-weight: 600;'>Sem dados disponíveis.</p>", unsafe_allow_html=True)
-                 st.form_submit_button("N/A", disabled=True) 
+            # padrao de 2 anos de visualizacao
+            start_def = d_max - timedelta(days=730)
+            if start_def < d_min: start_def = d_min
+            
+            # formato pt-br
+            d_ini = st.date_input("Início", start_def, min_value=d_min, max_value=d_max, format="DD/MM/YYYY")
+            d_fim = st.date_input("Fim", d_max, min_value=d_min, max_value=d_max, format="DD/MM/YYYY")
+            st.markdown("###")
+            st.form_submit_button("ATUALIZAR GRÁFICO")
+        
+        # aplica o filtro no dataframe
+        mask = (df.index.date >= d_ini) & (df.index.date <= d_fim)
+        df_filtered = df.loc[mask]
 
 # ==============================================================================
 # TELA 1: DASHBOARD
 # ==============================================================================
 if nav == "Dashboard":
-    
-    if df.empty:
-        st.stop()
-    
     st.markdown("<h1>Monitor de Mercado</h1>", unsafe_allow_html=True)
     st.markdown("###")
 
@@ -440,7 +367,7 @@ elif nav == "Simulador":
         st.markdown("#### Indexador")
         tipo = st.selectbox("Escolha o índice", ["Pós-fixado (CDI)", "IPCA +", "Pré-fixado"], label_visibility="collapsed")
         
-        # selic_h vem do fallback se df estiver vazio
+        selic_h = df["Selic"].iloc[-1]
         taxa = 0.0
         
         # logica de calculo da taxa anual
@@ -503,6 +430,9 @@ elif nav == "Simulador":
 # ==============================================================================
 elif nav == "Glossário":
     st.markdown("<h1>Glossário Financeiro</h1>", unsafe_allow_html=True)
+    st.markdown("Entenda os principais termos utilizados no mercado e na calculadora.")
+    
+    # funcao auxiliar pra criar os cards de texto
     def gloss_card(title, text):
         st.markdown(f"""
         <div class="glossary-card">
@@ -511,6 +441,7 @@ elif nav == "Glossário":
         </div>
         """, unsafe_allow_html=True)
 
+    # BLOCO 1: INDICADORES
     st.markdown("### Indicadores de Mercado")
     c1, c2 = st.columns(2)
     
@@ -524,7 +455,10 @@ elif nav == "Glossário":
         st.markdown("###")
         gloss_card("Juro Real", "É o ganho 'de verdade'. Se você ganhou 10% no investimento, mas a inflação foi 4%, seu Juro Real foi de aproximadamente 6%. É o quanto seu patrimônio cresceu acima do aumento dos preços.")
 
+    # divisoria pedida
     st.markdown("---")
+
+    # BLOCO 2: TIPOS DE INVESTIMENTO
     st.markdown("### Tipos de Rentabilidade")
     c3, c4, c5 = st.columns(3)
     
