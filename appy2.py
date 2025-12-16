@@ -2,10 +2,11 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-from bcb import sgs, Expectativas
+from bcb import Expectativas # Mantemos apenas Expectativas da lib bcb
 import warnings
 import time
-import os # NOVO: Para gerenciar o arquivo de cache
+import os
+import requests # IMPORTANTE: Necessário para burlar o bloqueio
 
 # Configurações de Cache
 DATA_FILE = "market_data_cache.csv" # Arquivo para salvar os dados
@@ -173,8 +174,27 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. FUNCOES DE DADOS (COM CACHE DE ARQUIVO DE 24 HORAS)
+# 2. FUNCOES DE DADOS (MANUAL PARA BURLAR BLOQUEIO)
 # ==============================================================================
+
+# Função auxiliar para fingir ser um navegador
+def fetch_bcb_manual(codigo, nome_serie):
+    url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados?formato=json"
+    # Este header é o segredo para o BC não bloquear
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+    }
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            df = pd.DataFrame(response.json())
+            df['data'] = pd.to_datetime(df['data'], format='%d/%m/%Y')
+            df[nome_serie] = pd.to_numeric(df['valor'])
+            df.set_index('data', inplace=True)
+            return df[[nome_serie]]
+    except:
+        return None
+    return None
 
 @st.cache_data(ttl=CACHE_EXPIRATION, show_spinner=False)
 def get_data():
@@ -183,18 +203,26 @@ def get_data():
     api_failed = True
     
     # 1. Tenta buscar a API (Este bloco só roda a cada 24h)
-    for _ in range(2): # Reduzido para 2 tentativas para ser mais rápido
+    for _ in range(2): 
         try:
-            hoje = datetime.today()
-            start = (hoje - timedelta(days=365*10)).strftime("%Y-%m-%d")
-            # codigos sgs: 432=selic meta, 13522=ipca acumulado 12m
-            df_api = sgs.get({"Selic": 432, "IPCA": 13522}, start=start)
+            # Busca Selic (432) e IPCA (13522) separadamente "na mão"
+            df_selic = fetch_bcb_manual(432, "Selic")
+            df_ipca = fetch_bcb_manual(13522, "IPCA")
             
-            if df_api is not None and not df_api.empty:
-                df = df_api.ffill().dropna()
-                df.to_csv(DATA_FILE) # SUCESSO: SALVA A VERSÃO NOVA NO DISCO
-                api_failed = False
-                break
+            if df_selic is not None and df_ipca is not None:
+                # Junta os dois
+                df_api = df_selic.join(df_ipca, how='inner').ffill().dropna()
+                
+                # Filtra os ultimos 10 anos
+                hoje = datetime.today()
+                start = (hoje - timedelta(days=365*10))
+                df_api = df_api[df_api.index >= start]
+
+                if not df_api.empty:
+                    df = df_api
+                    df.to_csv(DATA_FILE) # SUCESSO: SALVA A VERSÃO NOVA NO DISCO
+                    api_failed = False
+                    break
         except Exception:
             time.sleep(0.5)
             continue
@@ -267,15 +295,14 @@ with st.sidebar:
                 d_fim = st.date_input("Fim", d_max, min_value=d_min, max_value=d_max, format="DD/MM/YYYY")
                 st.markdown("###")
                 
-                # Botão de submissão DENTRO do formulário (CORREÇÃO do Missing Submit Button)
+                # Botão de submissão DENTRO do formulário
                 if st.form_submit_button("ATUALIZAR GRÁFICO"):
-                    # aplica o filtro no dataframe
                     mask = (df.index.date >= d_ini) & (df.index.date <= d_fim)
                     df_filtered = df.loc[mask]
             else:
                  # Exibe aviso se não há dados
                  st.markdown("<p style='color: #F97316; font-weight: 600;'>Filtros indisponíveis (Sem dados).</p>", unsafe_allow_html=True)
-                 st.form_submit_button("N/A", disabled=True) # Botão desabilitado para o formulário não falhar
+                 st.form_submit_button("N/A", disabled=True) 
 
 # ==============================================================================
 # TELA 1: DASHBOARD
