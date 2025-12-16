@@ -5,11 +5,11 @@ from datetime import datetime, timedelta
 from bcb import sgs, Expectativas
 import warnings
 import time
-import os # Para gerenciar o arquivo de cache
+import os # NOVO: Para gerenciar o arquivo de cache
 
 # Configurações de Cache
 DATA_FILE = "market_data_cache.csv" # Arquivo para salvar os dados
-CACHE_EXPIRATION = 24 * 3600 # 24 horas em segundos 
+CACHE_EXPIRATION = 24 * 3600 # 24 horas em segundos (TTL)
 
 # ==============================================================================
 # 1. SETUP E ESTILIZACAO
@@ -173,7 +173,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. FUNCOES DE DADOS (COM CACHE DE ARQUIVO)
+# 2. FUNCOES DE DADOS (COM CACHE DE ARQUIVO DE 24 HORAS)
 # ==============================================================================
 
 @st.cache_data(ttl=CACHE_EXPIRATION, show_spinner=False)
@@ -230,26 +230,22 @@ def get_focus():
 df = get_data()
 ipca_proj = get_focus()
 
-# --- Fallback de Variáveis para o Simulador ---
+# --- Fallback de Variáveis para o Simulador (Se df vazio) ---
 if not df.empty:
     selic_h = df["Selic"].iloc[-1]
-    # Usamos o ipca do DF para o Dashboard, mas o ipca_proj para o simulador
 else:
     # Valores de referência se o DF estiver vazio
     selic_h = 11.25 
-    # ipca_proj já tem um fallback em get_focus()
 
-# Tratamento de erro: Não trava mais o app inteiro
+# Tratamento de erro: Mensagem e Desativação do Dashboard se não houver dados
 if df.empty and st.session_state.get('nav') == "Dashboard":
     st.error("Erro de conexão persistente com o Banco Central. O Dashboard está indisponível.")
     st.warning("⚠️ O Simulador e o Glossário ainda estão operacionais com a última taxa conhecida.")
-
 
 with st.sidebar:
     st.markdown(f"<div style='color:{C_ACCENT}; font-weight:800; font-size:1.2rem; margin-bottom:20px; padding-left:5px;'>MONITOR</div>", unsafe_allow_html=True)
     
     # menu principal
-    # Armazena na session state para usar no tratamento de erro
     nav = st.radio("Navegação", ["Dashboard", "Simulador", "Glossário"], label_visibility="collapsed", key='nav')
     st.markdown("<div style='margin-top:20px; border-top:1px solid #1E293B'></div>", unsafe_allow_html=True)
     
@@ -270,14 +266,16 @@ with st.sidebar:
                 d_ini = st.date_input("Início", start_def, min_value=d_min, max_value=d_max, format="DD/MM/YYYY")
                 d_fim = st.date_input("Fim", d_max, min_value=d_min, max_value=d_max, format="DD/MM/YYYY")
                 st.markdown("###")
-                st.form_submit_button("ATUALIZAR GRÁFICO")
                 
-                # aplica o filtro no dataframe
-                mask = (df.index.date >= d_ini) & (df.index.date <= d_fim)
-                df_filtered = df.loc[mask]
+                # Botão de submissão DENTRO do formulário (CORREÇÃO do Missing Submit Button)
+                if st.form_submit_button("ATUALIZAR GRÁFICO"):
+                    # aplica o filtro no dataframe
+                    mask = (df.index.date >= d_ini) & (df.index.date <= d_fim)
+                    df_filtered = df.loc[mask]
             else:
-                 st.warning("Filtros indisponíveis.")
-
+                 # Exibe aviso se não há dados
+                 st.markdown("<p style='color: #F97316; font-weight: 600;'>Filtros indisponíveis (Sem dados).</p>", unsafe_allow_html=True)
+                 st.form_submit_button("N/A", disabled=True) # Botão desabilitado para o formulário não falhar
 
 # ==============================================================================
 # TELA 1: DASHBOARD
@@ -286,7 +284,6 @@ if nav == "Dashboard":
     
     # Novo check de erro: se df estiver vazio, para esta seção
     if df.empty:
-        # A mensagem de erro principal já foi exibida acima
         st.stop()
     
     st.markdown("<h1>Monitor de Mercado</h1>", unsafe_allow_html=True)
