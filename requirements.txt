@@ -3,4 +3,3 @@ pandas
 plotly
 python-bcb
 openpyxl
-python-bcb
