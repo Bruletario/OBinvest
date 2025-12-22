@@ -1,4 +1,4 @@
-analise esse codigo: import streamlit as st
+import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -407,3 +407,4 @@ elif nav == "Glossário":
     with c4: gloss_card("Pré-fixado", "A taxa é combinada na hora da compra (ex: 12% ao ano). Não varia com o mercado.")
     with c5: gloss_card("Híbrido (IPCA+)", "Paga uma parte fixa mais a inflação (IPCA). Protege o poder de compra.")
     st.markdown("---"); st.caption("Fonte dos dados: Banco Central do Brasil (SGS e Focus). Atualização automática.")
+
