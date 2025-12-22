@@ -4,28 +4,19 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 from bcb import sgs, Expectativas
+import warnings
 import time
 
 # ==============================================================================
-# 1. SETUP E ESTILIZACAO
-# ==============================================================================
-st.set_page_config(
-    page_title="Monitor de Mercado - OBINVEST",
+@@ -14,7 +14,6 @@
     layout="wide",
     initial_sidebar_state="expanded"
 )
+warnings.filterwarnings("ignore")
 
-# Cores e Variáveis
 C_SIDEBAR = "#0F172A"
 C_MAIN = "#F8FAFC"
-C_ACCENT = "#F97316"
-C_TEXT_MAIN = "#1E293B"
-C_TEXT_SIDE = "#FFFFFF"
-C_INPUT_BG = "#1E293B"
-C_SELIC = "#334155"
-C_IPCA = "#D97706"
-
-# Injeção de CSS
+@@ -29,17 +28,41 @@
 st.markdown(f"""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -35,380 +26,561 @@ st.markdown(f"""
         background-color: {C_MAIN};
         color: {C_TEXT_MAIN};
     }}
-    .block-container {{ padding-top: 1rem !important; padding-bottom: 2rem !important; }}
-    header {{ background-color: transparent !important; }}
     
-    /* INPUTS & WIDGETS */
+    /* REMOÇÃO DE ESPAÇO EXTRA NO TOPO (PADDING-TOP: 0rem) */
+    .block-container {{ 
+        padding-top: 0rem !important; 
+        padding-bottom: 2rem !important; 
+        max-width: 100%; 
+    }}
+    header {{ background-color: transparent !important; }}
+    .block-container {{ padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 100%; }}
+    #MainMenu, footer {{ visibility: hidden; }}
+
+    /* INPUTS & DATE PICKER */
     .stDateInput input, .stNumberInput input, .stSelectbox div[data-baseweb="select"] {{
         background-color: {C_INPUT_BG} !important; color: white !important;
         border: 1px solid #334155 !important; border-radius: 6px;
     }}
-    
-    /* SIDEBAR */
-    section[data-testid="stSidebar"] {{ background-color: {C_SIDEBAR}; border-right: 1px solid #1E293B; }}
-    section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] span, label, div {{ color: {C_TEXT_SIDE}; }}
-    
-    /* METRIC CARDS */
-    .metric-card {{
-        background-color: #FFFFFF; border-radius: 8px; padding: 15px; border: 1px solid #E2E8F0;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02); height: 100%; display: flex; flex-direction: column; justify-content: space-between;
-        transition: transform 0.2s;
+    .stDateInput input {{ font-weight: 500; }}
+    div[data-baseweb="input"] svg {{ fill: white !important; }}
+    div[data-baseweb="calendar"] {{
+        background-color: {C_SIDEBAR} !important; color: white !important;
+        border: 1px solid #334155 !important;
     }}
-    .metric-card:hover {{ border-color: {C_ACCENT}; transform: translateY(-2px); }}
-    .metric-label {{ font-size: 0.7rem; font-weight: 700; color: #64748B; text-transform: uppercase; margin-bottom: 5px; }}
-    .metric-value {{ font-size: 1.6rem; font-weight: 800; color: {C_TEXT_MAIN}; line-height: 1.1; margin-bottom: 5px; }}
-    .metric-delta {{ font-size: 0.8rem; font-weight: 600; display: flex; align-items: center; gap: 4px; }}
-    
-    /* BOTÕES DENTRO DOS CARDS (Hack CSS) */
-    .stButton button {{
-        width: 100%; border-radius: 6px; font-weight: 600; font-size: 0.8rem;
-        background-color: #F1F5F9; color: #475569; border: 1px solid #E2E8F0;
-        padding: 4px 8px; min-height: 0px; height: 32px; margin-top: 10px;
-    }}
-    .stButton button:hover {{ background-color: {C_ACCENT}; color: white; border-color: {C_ACCENT}; }}
+    div[data-baseweb="calendar"] button {{ filter: invert(1); }} 
 
-    h1 {{ font-weight: 800; color: {C_TEXT_MAIN}; margin: 0; font-size: 1.8rem; }}
-    .section-caption {{ font-size: 0.9rem; color: #64748B; margin-bottom: 20px; }}
+    /* --- SIDEBAR --- */
+    section[data-testid="stSidebar"] {{ background-color: {C_SIDEBAR}; border-right: 1px solid #1E293B; }}
+    section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] span, 
+    section[data-testid="stSidebar"] label, section[data-testid="stSidebar"] div {{ color: {C_TEXT_SIDE} !important; }}
+    
+    /* --- RADIO BUTTONS --- */
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label > div:first-child {{ display: none !important; }}
+    [data-testid="stSidebar"] [data-testid="stRadio"] label {{
+        padding: 12px 16px !important; margin-bottom: 4px !important; border-radius: 6px !important;
+@@ -51,246 +74,285 @@
+        background-color: {C_ACCENT} !important; color: white !important; font-weight: 600 !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }}
+    .stDateInput input, .stNumberInput input, .stSelectbox div[data-baseweb="select"] {{
+        background-color: {C_INPUT_BG} !important; color: white !important;
+        border: 1px solid #334155 !important; border-radius: 6px;
+    }}
+    .stDateInput svg {{ fill: white !important; }}
+    
+    section[data-testid="stSidebar"] button {{
+        background-color: {C_ACCENT} !important; color: white !important; border: none !important;
+        font-weight: 600; margin-top: 10px; transition: 0.2s;
+    }}
+    section[data-testid="stSidebar"] button:hover {{ background-color: #EA580C !important; }}
+    div[data-testid="stHorizontalBlock"] button {{
+        background-color: #FFFFFF !important; color: {C_TEXT_MAIN} !important;
+        border: 1px solid #CBD5E1 !important; border-radius: 4px !important;
+        font-weight: bold !important; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }}
+    div[data-testid="stHorizontalBlock"] button:hover {{ border-color: {C_ACCENT} !important; color: {C_ACCENT} !important; }}
+    
+    /* --- METRIC CARDS --- */
+    .metric-card {{
+        background-color: #FFFFFF; border-radius: 8px; padding: 24px; border: 1px solid #E2E8F0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02); height: 100%; display: flex; flex-direction: column; justify-content: center;
+        min-height: 160px;
+    }}
+    .metric-label {{ font-size: 0.75rem; font-weight: 700; color: #64748B; text-transform: uppercase; margin-bottom: 8px; }}
+    .metric-value {{ font-size: 2.2rem; font-weight: 800; color: {C_TEXT_MAIN}; line-height: 1; margin-bottom: 8px; }}
+    .metric-sub {{ font-size: 0.85rem; color: #64748B; font-weight: 500; }}
+    .metric-sub {{ font-size: 0.85rem; color: #64748B; font-weight: 500; display: flex; align-items: center; gap: 5px; }}
+    
+    /* --- SWAP BUTTON --- */
+    .swap-btn {{ display: flex; justify-content: center; }}
+    .swap-btn button {{
+        background-color: #F1F5F9 !important; border: 1px solid #E2E8F0 !important;
+        color: {C_TEXT_MAIN} !important; border-radius: 50% !important;
+        width: 50px !important; height: 50px !important; font-size: 1.5rem !important;
+        display: flex; align-items: center; justify-content: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-top: 50px;
+    }}
+    .swap-btn button:hover {{ background-color: {C_ACCENT} !important; color: white !important; border-color: {C_ACCENT} !important; }}
+    @media (max-width: 768px) {{ .swap-btn button {{ margin-top: 10px !important; margin-bottom: 20px !important; }} }}
+
+    /* --- EXPANDER --- */
+    .streamlit-expanderHeader {{
+        background-color: white !important; border-radius: 8px !important; border: 1px solid #E2E8F0 !important;
+        font-weight: 600 !important; color: {C_TEXT_MAIN} !important;
+    }}
+    .streamlit-expanderContent {{
+        border: 1px solid #E2E8F0; border-top: none; background-color: white;
+        border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; padding-top: 20px !important;
+    }}
+    
+    /* --- BUTTONS --- */
+    div[data-testid="stButton"] button {{
+        background-color: #FFFFFF !important; color: {C_TEXT_MAIN} !important;
+        border: 1px solid #CBD5E1 !important; border-radius: 6px !important;
+        height: 42px;
+    }}
+    div[data-testid="stButton"] button:hover {{ 
+        border-color: {C_ACCENT} !important; color: {C_ACCENT} !important; background-color: #FFF7ED !important;
+    }}
+
+    /* --- GLOSSARY --- */
+    .glossary-card {{
+        background-color: #FFFFFF; border-radius: 8px; padding: 20px; border: 1px solid #E2E8F0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.02); height: 100%; transition: transform 0.2s;
+    }}
+    .glossary-card:hover {{ border-color: {C_ACCENT}; }}
+    .gloss-title {{ font-size: 1rem; font-weight: 700; color: {C_TEXT_MAIN}; margin-bottom: 8px; }}
+    .gloss-text {{ font-size: 0.9rem; color: #475569; line-height: 1.5; }}
+    
+    h1 {{ font-weight: 800; color: {C_TEXT_MAIN}; margin: 0; padding: 0; font-size: 2rem; letter-spacing: -0.5px; }}
+    h3 {{ color: {C_TEXT_MAIN}; font-weight: 700; margin-top: 20px; margin-bottom: 15px; }}
+    h3 {{ color: {C_TEXT_MAIN}; font-weight: 700; margin-top: 20px; margin-bottom: 5px; }}
+    .section-caption {{ font-size: 0.9rem; color: #64748B; margin-bottom: 20px; font-weight: 400; }}
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
+# 2. FUNCOES DE DADOS (INTEGRACAO COM APIS)
 # 2. DADOS
 # ==============================================================================
 
+# UPGRADE: Alterado ttl para 86400 (24 horas em segundos)
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_data():
-    """Busca dados de séries temporais (SGS)"""
     for attempt in range(3):
         try:
             hoje = datetime.today()
             start = (hoje - timedelta(days=365*10)).strftime("%Y-%m-%d")
-            # 432: Selic Meta, 13522: IPCA 12m, 189: IGP-M 12m, 1: Dolar
-            codigos = {"Selic": 432, "IPCA": 13522, "IGPM": 189, "Dolar": 1} 
+            # 432=selic meta, 13522=ipca acumulado 12m
+            df = sgs.get({"Selic": 432, "IPCA": 13522}, start=start).ffill().dropna()
+            codigos = {"Selic": 432, "IPCA": 13522, "IGPM": 13521, "Dolar": 1}
             df = sgs.get(codigos, start=start).ffill().dropna()
             if not df.empty: return df
-        except Exception:
+        except Exception as e:
+            # UPGRADE: Printar erro no console do servidor para debug
+            print(f"Erro ao buscar dados SGS (tentativa {attempt+1}): {e}")
             time.sleep(1)
             continue
+            time.sleep(1); continue
     return pd.DataFrame()
 
+# UPGRADE: Alterado ttl para 86400 (24 horas)
 @st.cache_data(ttl=86400, show_spinner=False)
-def get_focus_summary():
-    """Busca dados atuais e históricos do Focus para o gráfico de barras"""
-    res = {"IPCA_Proj": 4.5, "PIB_Proj": 2.0, "History_IPCA": []}
+def get_focus():
+def get_focus_data():
+    res = {"IPCA": 4.5, "PIB": 2.0} 
     try:
         em = Expectativas()
-        
-        # 1. Projeções Atuais (PIB e IPCA para cards)
+        ep = em.get_endpoint('ExpectativasMercadoInflacao12Meses')
         dt_lim = (datetime.now()-timedelta(days=30)).strftime('%Y-%m-%d')
+        df = (ep.query().filter(ep.Data >= dt_lim).filter(ep.Suavizada == 'S').filter(ep.baseCalculo == 0).collect())
+        return 4.5 if df.empty else float(df.sort_values('Data').iloc[-1]['Mediana'])
+    except Exception as e:
+        print(f"Erro ao buscar dados FOCUS: {e}")
+        return 4.5
+
+# ==============================================================================
+# 3. BARRA LATERAL (NAVEGACAO E FILTROS)
+# ==============================================================================
         ep_ipca = em.get_endpoint('ExpectativasMercadoInflacao12Meses')
         df_ipca = (ep_ipca.query().filter(ep_ipca.Data >= dt_lim).filter(ep_ipca.Suavizada == 'S').filter(ep_ipca.baseCalculo == 0).collect())
-        if not df_ipca.empty: res["IPCA_Proj"] = float(df_ipca.sort_values('Data').iloc[-1]['Mediana'])
-
-        ep_anual = em.get_endpoint('ExpectativasMercadoAnual')
+        if not df_ipca.empty: res["IPCA"] = float(df_ipca.sort_values('Data').iloc[-1]['Mediana'])
+        ep_pib = em.get_endpoint('ExpectativasMercadoAnual')
         ano_atual = datetime.now().year
-        df_pib = (ep_anual.query().filter(ep_anual.Data >= dt_lim).filter(ep_anual.Indicador == 'PIB Total').filter(ep_anual.DataReferencia == ano_atual).collect())
-        if not df_pib.empty: res["PIB_Proj"] = float(df_pib.sort_values('Data').iloc[-1]['Mediana'])
-
-        # 2. Dados Históricos para o Gráfico de Barras (Últimos 4 anos + Atual)
-        anos_hist = range(ano_atual - 4, ano_atual + 1)
-        history_data = []
-        
-        # Busca projeção que o mercado tinha em JANEIRO de cada ano para aquele ano
-        for ano in anos_hist:
-            dt_ini_ano = f"{ano}-01-01"
-            dt_fim_ano = f"{ano}-02-28" # Janela de busca no inicio do ano
-            
-            try:
-                # Busca expectativa do inicio do ano
-                df_hist = (ep_anual.query()
-                           .filter(ep_anual.Indicador == 'IPCA')
-                           .filter(ep_anual.DataReferencia == ano)
-                           .filter(ep_anual.Data >= dt_ini_ano)
-                           .filter(ep_anual.Data <= dt_fim_ano)
-                           .collect())
-                
-                projecao = df_hist['Mediana'].mean() if not df_hist.empty else None
-                history_data.append({"Ano": ano, "Projecao_Focus": projecao})
-            except:
-                continue
-                
-        res["History_IPCA"] = pd.DataFrame(history_data)
+        df_pib = (ep_pib.query().filter(ep_pib.Data >= dt_lim).filter(ep_pib.Indicador == 'PIB Total').filter(ep_pib.DataReferencia == ano_atual).collect())
+        if not df_pib.empty: res["PIB"] = float(df_pib.sort_values('Data').iloc[-1]['Mediana'])
         return res
-    except:
-        return res
+    except: return res
 
-with st.spinner('Carregando dados do Banco Central...'):
+# Verifica se estamos em um estado de "loading" inicial
+with st.spinner('Conectando ao Banco Central...'):
     df = get_data()
-    focus_data = get_focus_summary()
+    ipca_proj = get_focus()
 
 if df.empty:
-    st.error("Erro ao conectar com API do Banco Central.")
+    st.error("Erro de conexão com o Banco Central.")
+    # UPGRADE: Dica visual se falhar
+    st.info("Nota: Se estiver rodando no Streamlit Cloud, o Banco Central pode estar bloqueando o IP do servidor.")
     st.stop()
+    focus = get_focus_data()
+    ipca_proj = focus["IPCA"]
+    pib_proj = focus["PIB"]
+    ano_pib = datetime.now().year
 
-# ==============================================================================
-# 3. BARRA LATERAL (SIDEBAR)
-# ==============================================================================
+# ... (O RESTANTE DO CÓDIGO PERMANECE IGUAL AO SEU ORIGINAL) ...
+# Apenas certifique-se de copiar o resto do seu código original (sidebar e telas) aqui para baixo.
+# Vou incluir a parte da sidebar para garantir a continuidade:
+if df.empty: st.error("Erro conexão Banco Central."); st.stop()
+
 with st.sidebar:
-    # LOGO SOLICITADO
-    try:
-        st.image("Logo OBINVEST Branco.png", use_container_width=True)
-    except:
-        st.warning("Logo não encontrado.")
-    
-    st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
-    
-    # MUDANÇA DE NOME SOLICITADA
-    st.markdown(f"<div style='color:{C_ACCENT}; font-weight:800; font-size:1.1rem; margin-bottom:15px; letter-spacing:1px;'>DADOS ECONÔMICOS</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='color:{C_ACCENT}; font-weight:800; font-size:1.2rem; margin-bottom:20px; padding-left:5px;'>MONITOR</div>", unsafe_allow_html=True)
     
     nav = st.radio("Navegação", ["Dashboard", "Simulador", "Glossário"], label_visibility="collapsed")
+    st.markdown("<div style='margin-top:20px; border-top:1px solid #1E293B'></div>", unsafe_allow_html=True)
     
-    st.markdown("<div style='margin-top:auto; border-top:1px solid #334155; margin-top: 30px; padding-top:10px;'></div>", unsafe_allow_html=True)
+    df_filtered = df.copy()
+    
+    if nav == "Dashboard":
+        with st.form("f_filtros"):
+            st.markdown("**Período do Gráfico**")
+            d_max = df.index.max().date()
+            d_min = df.index.min().date()
+            
+            start_def = d_max - timedelta(days=730)
+            if start_def < d_min: start_def = d_min
+            
+            d_ini = st.date_input("Início", start_def, min_value=d_min, max_value=d_max, format="DD/MM/YYYY")
+            d_fim = st.date_input("Fim", d_max, min_value=d_min, max_value=d_max, format="DD/MM/YYYY")
+            st.markdown("###")
+            st.form_submit_button("ATUALIZAR GRÁFICO")
+        
+        mask = (df.index.date >= d_ini) & (df.index.date <= d_fim)
+        df_filtered = df.loc[mask]
     st.caption(f"Atualizado: {datetime.now().strftime('%d/%m/%Y')}")
 
 # ==============================================================================
-# 4. DASHBOARD - LÓGICA PRINCIPAL
+# 3. DASHBOARD
 # ==============================================================================
+
 if nav == "Dashboard":
-    
-    # Inicialização do estado para controle dos gráficos
-    if 'selected_chart' not in st.session_state:
-        st.session_state.selected_chart = 'default' # Padrão: Selic x IPCA
-
     st.markdown("<h1>Monitor de Mercado</h1>", unsafe_allow_html=True)
-    st.markdown("<p class='section-caption'>Visão unificada dos principais indicadores e projeções.</p>", unsafe_allow_html=True)
+    st.markdown("###")
 
-    # ---------------------------------------------------------
-    # LAYOUT DOS 5 CARDS (TODOS DE UMA VEZ)
-    # ---------------------------------------------------------
+    if df_filtered.empty:
+        st.warning("Nenhum dado encontrado para o período selecionado.")
+        st.stop()
+
+    last = df_filtered.iloc[-1]
+    v_selic, v_ipca = last["Selic"], last["IPCA"]
+    v_real = ((1 + v_selic/100) / (1 + v_ipca/100) - 1) * 100
+    ref = df_filtered.index[-1].strftime('%d/%m/%Y')
+
+    c1, c2, c3 = st.columns(3)
+    def card(col, lbl, val, sub, border):
+        col.markdown(f"""
+        <div class="metric-card" style="border-left: 5px solid {border};">
+            <div class="metric-label">{lbl}</div>
+            <div class="metric-value">{val}</div>
+            <div class="metric-sub">{sub}</div>
+        </div>""", unsafe_allow_html=True)
+
+    card(c1, "TAXA SELIC", f"{v_selic:.2f}%", f"Ref: {ref}", C_SELIC)
+    card(c2, "IPCA (12M)", f"{v_ipca:.2f}%", "Inflação Acumulada", C_IPCA)
+    card(c3, "JURO REAL", f"{v_real:.2f}%", "Acima da Inflação", C_REAL)
+    st.markdown("<p class='section-caption'>Visão geral dos principais indicadores econômicos do Brasil em tempo real.</p>", unsafe_allow_html=True)
+
+    if 'card_page' not in st.session_state: st.session_state.card_page = 0 
+    c1, c2, c3, c_nav = st.columns([3, 3, 3, 0.4])
+
     latest = df.iloc[-1]
-    prev = df.iloc[-2] if len(df) > 1 else latest
-    
-    # Colunas para os 5 cards
-    c1, c2, c3, c4, c5 = st.columns(5)
+    previous = df.iloc[-2] if len(df) > 1 else latest
+    ref = latest.name.strftime('%d/%m/%Y')
 
-    def card_template(col, label, value, delta, key_chart, is_pib=False):
-        # Definição de cores e setas
-        color_delta = "#94A3B8"
-        arrow = ""
-        
-        if delta != 0 and delta is not None:
-            if is_pib:
-                # Lógica PIB (Positivo é bom)
-                if delta > 0: color_delta = "#10B981"; arrow = "▲"
-                else: color_delta = "#EF4444"; arrow = "▼"
-            elif "DÓLAR" in label or "IGP-M" in label or "IPCA" in label:
-                # Lógica Inflação/Dolar (Subir é ruim geralmente, mas aqui usamos verde p/ queda)
-                if delta > 0: color_delta = "#EF4444"; arrow = "▲"
-                else: color_delta = "#10B981"; arrow = "▼"
-            else:
-                # Selic e outros
-                if delta > 0: color_delta = "#10B981"; arrow = "▲"
-                else: color_delta = "#EF4444"; arrow = "▼"
-        
-        delta_fmt = f"{arrow} {abs(delta):.2f}%" if delta is not None else "-"
-        if "DÓLAR" in label and delta is not None: delta_fmt = f"{arrow} R$ {abs(delta):.4f}"
+    def card(col, lbl, val, sub, delta=None, border="#ccc", color_text="#333", is_pib=False):
+        delta_html = ""
+        if is_pib:
+            val_float = float(val.replace("%","").replace(",","."))
+            if val_float > 0: color_delta = "#10B981"; sub_text = "Projeção de <b>Crescimento</b>"; arrow = "▲"
+            elif val_float < 0: color_delta = "#EF4444"; sub_text = "Projeção de <b>Retração</b>"; arrow = "▼"
+            else: color_delta = "#94A3B8"; sub_text = "Estabilidade"; arrow = "="
+            delta_html = f"<span style='color:{color_delta}; font-size:0.9rem; font-weight:600; margin-left:8px'>{arrow}</span>"
+        elif delta is not None:
+            arrow = "▲" if delta > 0 else "▼" if delta < 0 else "="
+            color_delta = "#10B981" if delta > 0 else "#EF4444" if delta < 0 else "#94A3B8"
+            if any(x in lbl for x in ["IPCA", "IGP-M", "DÓLAR"]) and delta != 0: color_delta = "#EF4444" if delta > 0 else "#10B981"
+            delta_str = f"{arrow} {abs(delta):.3f}" if "DÓLAR" in lbl else f"{arrow} {abs(delta):.2f}%"
+            if delta != 0: delta_html = f"<span style='color:{color_delta}; font-size:0.9rem; font-weight:600; margin-left:8px'>{delta_str}</span>"
+            sub_text = sub
 
-        with col:
-            # HTML do Card
-            st.markdown(f"""
-            <div class='metric-card'>
-                <div>
-                    <div class='metric-label'>{label}</div>
-                    <div class='metric-value'>{value}</div>
-                    <div class='metric-delta' style='color:{color_delta}'>{delta_fmt}</div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Botão invisível de estilo para acionar a troca de gráfico
-            if st.button("Ver Gráfico", key=f"btn_{key_chart}"):
-                st.session_state.selected_chart = key_chart
+        col.markdown(f"<div class='metric-card' style='border-left: 5px solid {border};'><div class='metric-label'>{lbl}</div><div style='display:flex; align-items:baseline;'><div class='metric-value' style='color:{color_text}'>{val}</div>{delta_html}</div><div class='metric-sub'>{sub_text}</div></div>", unsafe_allow_html=True)
 
-    # 1. SELIC
-    card_template(c1, "TAXA SELIC", f"{latest['Selic']:.2f}%", latest['Selic'] - prev['Selic'], 'selic')
-    
-    # 2. IPCA
-    card_template(c2, "IPCA (12M)", f"{latest['IPCA']:.2f}%", latest['IPCA'] - prev['IPCA'], 'ipca')
-    
-    # 3. DÓLAR
-    card_template(c3, "DÓLAR PTAX", f"R$ {latest['Dolar']:.4f}", latest['Dolar'] - prev['Dolar'], 'dolar')
-    
-    # 4. IGP-M
-    card_template(c4, "IGP-M (12M)", f"{latest['IGPM']:.2f}%", latest['IGPM'] - prev['IGPM'], 'igpm')
-    
-    # 5. PIB (Projeção)
-    pib_val = focus_data["PIB_Proj"]
-    card_template(c5, f"PIB ({datetime.now().year})", f"{pib_val:.2f}%", pib_val, 'pib', is_pib=True)
+    show_primary = (st.session_state.card_page == 0)
+    if show_primary:
+        v_selic, v_ipca = latest["Selic"], latest["IPCA"]
+        v_real = ((1 + v_selic/100) / (1 + v_ipca/100) - 1) * 100
+        card(c1, "TAXA SELIC", f"{v_selic:.2f}%", f"Ref: {ref}", v_selic - previous["Selic"], C_SELIC, C_TEXT_MAIN)
+        card(c2, "IPCA (12M)", f"{v_ipca:.2f}%", "Inflação Oficial", v_ipca - previous["IPCA"], C_IPCA, C_TEXT_MAIN)
+        card(c3, "JURO REAL", f"{v_real:.2f}%", "Acima da Inflação", 0, C_REAL, C_TEXT_MAIN)
+    else:
+        v_dolar, v_igpm = latest["Dolar"], latest["IGPM"]
+        igpm_txt = "Inflação (Aluguel)" if v_igpm >= 0 else "Deflação (Aluguel)"
+        card(c1, "DÓLAR PTAX", f"R$ {v_dolar:.4f}", "Cotação de Venda", v_dolar - previous["Dolar"], "#0EA5E9", C_TEXT_MAIN)
+        card(c2, "IGP-M (12M)", f"{v_igpm:.2f}%", igpm_txt, v_igpm - previous["IGPM"], "#8B5CF6", C_TEXT_MAIN)
+        card(c3, f"PIB (PROJEÇÃO {ano_pib})", f"{pib_proj:.2f}%", "", None, "#EAB308", C_TEXT_MAIN, is_pib=True)
 
-    # ---------------------------------------------------------
-    # ÁREA GRÁFICA (Dinâmica)
-    # ---------------------------------------------------------
-    st.markdown("---")
-    
-    chart_mode = st.session_state.selected_chart
-    
-    # Título dinâmico do gráfico
-    titles = {
-        'default': "Panorama: Selic vs IPCA (Histórico)",
-        'selic': "Evolução da Taxa Selic",
-        'ipca': "Inflação: Realizado vs Projetado (Focus)",
-        'dolar': "Cotação do Dólar (PTAX)",
-        'igpm': "Índice Geral de Preços - Mercado (IGP-M)",
-        'pib': "Evolução Recente (Série Histórica)"
-    }
-    
-    st.subheader(titles.get(chart_mode, "Gráfico"))
-    
-    # Container do gráfico
+    with c_nav:
+        st.markdown('<div class="swap-btn">', unsafe_allow_html=True)
+        if st.button("▶" if show_primary else "◀", key="swap"):
+            st.session_state.card_page = 1 if show_primary else 0
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown("---") 
+
+    st.markdown("### Evolução Histórica")
     with st.container():
-        # Filtro de data (comum a todos, exceto o comparativo de barras)
-        if chart_mode != 'ipca':
-            d_max = df.index.max().date()
-            start_def = d_max - timedelta(days=1095) # 3 anos padrão
-            c_filter, _ = st.columns([2, 4])
-            with c_filter:
-                ini_date = st.date_input("Início do período", start_def, format="DD/MM/YYYY")
-            
-            mask = df.index.date >= ini_date
-            df_g = df.loc[mask]
-        else:
-            df_g = df # Placeholder
-        
         fig = go.Figure()
-
-        # LOGICA DOS GRÁFICOS
+        fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered["Selic"], name="Selic", line=dict(color=C_SELIC, width=3)))
+        fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered["IPCA"], name="IPCA", line=dict(color=C_ACCENT, width=3)))
         
-        # 1. DEFAULT: SELIC x IPCA
-        if chart_mode == 'default' or chart_mode == 'selic':
-            fig.add_trace(go.Scatter(x=df_g.index, y=df_g['Selic'], name='Selic', line=dict(color=C_SELIC, width=3)))
-            if chart_mode == 'default':
-                fig.add_trace(go.Scatter(x=df_g.index, y=df_g['IPCA'], name='IPCA', line=dict(color=C_IPCA, width=3, dash='dot')))
-            fig.update_yaxes(title="Taxa (%)")
-
-        # 2. GRÁFICO ESPECÍFICO DE INFLAÇÃO (BARRAS: REALIZADO vs PROJETADO)
-        elif chart_mode == 'ipca':
-            st.caption("Comparativo: Inflação acumulada no ano (SGS) vs. O que o mercado projetava em Janeiro do mesmo ano (Focus).")
-            
-            # Preparar dados
-            df_hist_focus = focus_data["History_IPCA"]
-            
-            if not df_hist_focus.empty:
-                # Pegar inflação realizada anual (aproximada pelo acumulado 12m de Dezembro de cada ano)
-                realizado_vals = []
-                anos = df_hist_focus['Ano'].tolist()
-                
-                for ano in anos:
-                    # Tenta pegar valor de dezembro, se não tiver (ano corrente), pega ultimo disponivel
-                    try:
-                        val = df[df.index.year == ano]['IPCA'].iloc[-1]
-                        realizado_vals.append(val)
-                    except:
-                        realizado_vals.append(0)
-                
-                fig.add_trace(go.Bar(
-                    x=anos, 
-                    y=realizado_vals, 
-                    name='IPCA Realizado',
-                    marker_color=C_IPCA,
-                    text=[f"{x:.2f}%" for x in realizado_vals],
-                    textposition='auto'
-                ))
-                
-                fig.add_trace(go.Bar(
-                    x=anos, 
-                    y=df_hist_focus['Projecao_Focus'], 
-                    name='Projeção Focus (Jan)',
-                    marker_color='#94A3B8',
-                    text=[f"{x:.2f}%" if pd.notnull(x) else "" for x in df_hist_focus['Projecao_Focus']],
-                    textposition='auto'
-                ))
-                
-                fig.update_layout(barmode='group')
-            else:
-                st.warning("Dados históricos de projeção indisponíveis no momento.")
-
-        # 3. DÓLAR
-        elif chart_mode == 'dolar':
-            fig.add_trace(go.Scatter(x=df_g.index, y=df_g['Dolar'], name='Dólar', line=dict(color='#10B981', width=2), fill='tozeroy'))
-            fig.update_yaxes(tickprefix="R$ ")
-
-        # 4. IGPM
-        elif chart_mode == 'igpm':
-            fig.add_trace(go.Scatter(x=df_g.index, y=df_g['IGPM'], name='IGP-M', line=dict(color='#8B5CF6', width=3)))
-        
-        # 5. PIB (Como SGS não traz PIB mensal fácil, usamos gráfico dummy ou mantemos vazio)
-        elif chart_mode == 'pib':
-             st.info("O PIB é divulgado trimestralmente. Exibindo projeção anual e histórico recente.")
-             # Plot simples de evolução apenas ilustrativo
-             fig.add_trace(go.Scatter(x=df_g.index, y=[focus_data["PIB_Proj"]]*len(df_g), name=f'Projeção {datetime.now().year}', line=dict(color='#EAB308', dash='dash')))
-
-        # Configuração Geral do Layout do Gráfico
         fig.update_layout(
-            template="plotly_white",
-            height=400,
-            margin=dict(t=30, b=0, l=0, r=0),
+            template="plotly_white", 
+            height=320,
+            margin=dict(t=20, l=10, r=10, b=10),
             legend=dict(orientation="h", y=1.1, x=0),
-            hovermode="x unified"
+            hovermode="x unified",
+            xaxis=dict(showgrid=False),
+            yaxis=dict(showgrid=True, gridcolor="#E2E8F0", ticksuffix="%")
         )
         st.plotly_chart(fig, use_container_width=True)
-        
-        # Botão para resetar
-        if chart_mode != 'default':
-            if st.button("Voltar ao Padrão (Selic x IPCA)"):
-                st.session_state.selected_chart = 'default'
-                st.rerun()
+
+    if 'table_page' not in st.session_state:
+        st.session_state.table_page = 0
+    
+    df_monthly = df.resample('M').last()
+    df_rev = df_monthly.sort_index(ascending=False).copy()
+    df_rev["Juro Real"] = ((1 + df_rev["Selic"]/100) / (1 + df_rev["IPCA"]/100) - 1) * 100
+    
+    ITENS = 6
+    total = len(df_rev)
+    start = st.session_state.table_page * ITENS
+    end = start + ITENS
+    df_view = df_rev.iloc[start:end]
+
+    if not df_view.empty:
+        date_rec = df_view.index[0].strftime('%d/%m/%Y')
+        date_old = df_view.index[-1].strftime('%d/%m/%Y')
+        periodo_str = f"{date_old} - {date_rec}"
+    c_head_1, c_head_2 = st.columns([2, 1])
+    with c_head_1:
+        g_title = "Evolução: Selic e IPCA" if show_primary else "Correlação: Dólar e IGP-M"
+        st.markdown(f"### {g_title}")
+        st.markdown("<p class='section-caption'>Acompanhe como os indicadores se comportaram no período selecionado.</p>", unsafe_allow_html=True)
+    with c_head_2:
+        with st.expander("Filtrar Período", expanded=False):
+            st.markdown("<div style='font-size:0.85rem; color:#64748B; margin-bottom:10px;'>Selecione o intervalo de análise:</div>", unsafe_allow_html=True)
+            d_max = df.index.max().date(); d_min = df.index.min().date(); start_def = d_max - timedelta(days=730)
+            fd1, fd2 = st.columns(2)
+            d_ini = fd1.date_input("Início", start_def, min_value=d_min, max_value=d_max, format="DD/MM/YYYY")
+            d_fim = fd2.date_input("Fim", d_max, min_value=d_min, max_value=d_max, format="DD/MM/YYYY")
+
+    mask = (df.index.date >= d_ini) & (df.index.date <= d_fim)
+    df_chart = df.loc[mask]
+
+    if df_chart.empty: st.warning("Nenhum dado encontrado.")
+    else:
+        periodo_str = ""
+        with st.container():
+            has_secondary = not show_primary
+            fig = make_subplots(specs=[[{"secondary_y": has_secondary}]])
+            if show_primary:
+                fig.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Selic"], name="Selic", line=dict(color=C_SELIC, width=3), hovertemplate="Data: %{x|%d/%m/%Y}<br>Selic: <b>%{y:.2f}%</b><extra></extra>"), secondary_y=False)
+                fig.add_trace(go.Scatter(x=df_chart.index, y=df_chart["IPCA"], name="IPCA", line=dict(color=C_ACCENT, width=3), hovertemplate="Data: %{x|%d/%m/%Y}<br>IPCA: <b>%{y:.2f}%</b><extra></extra>"), secondary_y=False)
+                fig.update_yaxes(title_text="Taxa (%)", showgrid=True, gridcolor="#E2E8F0", ticksuffix="%")
+            else:
+                fig.add_trace(go.Scatter(x=df_chart.index, y=df_chart["Dolar"], name="Dólar", line=dict(color="#0EA5E9", width=3), hovertemplate="Data: %{x|%d/%m/%Y}<br>Dólar: <b>R$ %{y:.4f}</b><extra></extra>"), secondary_y=False)
+                fig.add_trace(go.Scatter(x=df_chart.index, y=df_chart["IGPM"], name="IGP-M", line=dict(color="#8B5CF6", width=3), hovertemplate="Data: %{x|%d/%m/%Y}<br>IGP-M: <b>%{y:.2f}%</b><extra></extra>"), secondary_y=True)
+                fig.update_yaxes(title_text="Cotação (R$)", showgrid=True, gridcolor="#E2E8F0", tickprefix="R$ ", secondary_y=False)
+                fig.update_yaxes(title_text="Índice (%)", showgrid=False, ticksuffix="%", secondary_y=True)
+            fig.update_layout(template="plotly_white", height=350, margin=dict(t=20, l=10, r=10, b=10), legend=dict(orientation="h", y=1.1, x=0), hovermode="x unified", xaxis=dict(showgrid=False))
+            st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
+    
+    col_t_1, col_t_2, col_t_3 = st.columns([8, 1, 1])
+    if 'table_page' not in st.session_state: st.session_state.table_page = 0
+    df_rev = df.resample('M').last().sort_index(ascending=False)
+    for c in ["Selic", "IPCA", "Dolar", "IGPM"]: df_rev[f"{c}_D"] = df_rev[c].diff(-1)
+
+    ITENS = 6; total = len(df_rev); start = st.session_state.table_page * ITENS; end = start + ITENS
+    if start >= total and total > 0: st.session_state.table_page = 0; start = 0; end = ITENS
+    df_view = df_rev.iloc[start:end].copy()
+
+    st.markdown("---")
+    col_t_1, col_t_2, col_t_3 = st.columns([6, 1, 1])
+    with col_t_1:
+        st.markdown(f"### Dados Detalhados <span style='font-size:1rem; color:#64748B; font-weight:400; margin-left:10px'>({periodo_str})</span>", unsafe_allow_html=True)
+    
+        st.markdown(f"### Dados Detalhados")
+        st.markdown("<p class='section-caption'>Histórico completo (últimos 10 anos).</p>", unsafe_allow_html=True)
+    with col_t_2:
+        if st.button("<", key="btn_prev", disabled=(st.session_state.table_page == 0)):
+            st.session_state.table_page -= 1
+            st.rerun()
+            
+        if st.button("◀", key="btn_prev", disabled=(st.session_state.table_page == 0), use_container_width=True):
+            st.session_state.table_page -= 1; st.rerun()
+    with col_t_3:
+        if st.button(">", key="btn_next", disabled=(end >= total)):
+            st.session_state.table_page += 1
+            st.rerun()
+        if st.button("▶", key="btn_next", disabled=(end >= total), use_container_width=True):
+            st.session_state.table_page += 1; st.rerun()
+
+    def fmt_arrow(val, delta, is_currency=False):
+        arrow = "▲" if delta > 0 else "▼" if delta < 0 else "="
+        val_str = f"R$ {val:.4f}" if is_currency else f"{val:.2f}%"
+        return f"{val_str} {arrow}"
+
+    for c in ["Selic", "IPCA", "IGPM", "Dolar"]:
+        new_col = []
+        for idx, row in df_view.iterrows(): new_col.append(fmt_arrow(row[c], row[f"{c}_D"], c=="Dolar"))
+        df_view[f"{c}_Show"] = new_col
+
+    df_view.index = df_view.index.strftime('%b/%Y')
+    def color_arrows(val):
+        if "▲" in val: return "color: #10B981; font-weight:600"
+        if "▼" in val: return "color: #EF4444; font-weight:600"
+        return "color: #64748B"
+
+    df_view.index = df_view.index.strftime('%d/%m/%Y')
+    
+    st.dataframe(
+        df_view.style.format("{:.2f}%")
+        .applymap(lambda x: f"color:{C_SELIC};font-weight:600", subset=["Selic"])
+        .applymap(lambda x: f"color:{C_IPCA};font-weight:600", subset=["IPCA"])
+        .applymap(lambda x: f"color:{C_REAL};font-weight:600", subset=["Juro Real"]),
+        use_container_width=True,
+        height=260
+        df_view[["Selic_Show", "IPCA_Show", "Dolar_Show", "IGPM_Show"]]
+        .rename(columns={"Selic_Show": "Selic", "IPCA_Show": "IPCA", "Dolar_Show": "Dólar", "IGPM_Show": "IGP-M"})
+        .style.applymap(color_arrows),
+        use_container_width=True, height=280
+    )
 
 # ==============================================================================
-# 5. SIMULADOR E GLOSSÁRIO (Mantidos conforme original, apenas recuo de identação)
+# 4. SIMULADOR (SEM DOLAR E SEM LIQUIDO)
 # ==============================================================================
 elif nav == "Simulador":
     st.markdown("<h1>Simulador de Rentabilidade</h1>", unsafe_allow_html=True)
+    st.markdown("###")
+    st.markdown("<p class='section-caption'>Projeção de ganhos baseada em diferentes indexadores do mercado.</p>", unsafe_allow_html=True)
+
+    col_in, col_out = st.columns([1.2, 2])
     col_in, col_out = st.columns([1, 2])
+
     with col_in:
         st.markdown("#### Parâmetros")
-        ini = st.number_input("Aporte Inicial (R$)", min_value=0.0, value=1000.0)
-        mes = st.number_input("Aporte Mensal (R$)", min_value=0.0, value=100.0)
+        ini = st.number_input("Aporte Inicial (R$)", min_value=0.0, value=1000.0, step=100.0, format="%.2f")
+        mes = st.number_input("Aporte Mensal (R$)", min_value=0.0, value=100.0, step=50.0, format="%.2f")
+        ini = st.number_input("Aporte Inicial (R$)", min_value=0.0, value=1000.0, step=100.0, format="%.2f", help="Valor que você tem hoje para investir.")
+        mes = st.number_input("Aporte Mensal (R$)", min_value=0.0, value=100.0, step=50.0, format="%.2f", help="Quanto você vai depositar todo mês.")
         anos = st.slider("Tempo (Anos)", 1, 30, 5)
-        tipo = st.selectbox("Escolha o índice", ["Pós-fixado (CDI)", "IPCA +", "Pré-fixado"])
-        
+
+        st.markdown("#### Indexador")
+        # REMOVIDO "DÓLAR" DA LISTA
+        tipo = st.selectbox("Escolha o índice", ["Pós-fixado (CDI)", "IPCA +", "Pré-fixado"], label_visibility="collapsed")
+
         selic_h = df["Selic"].iloc[-1]
         taxa = 0.0
-        if "CDI" in tipo:
-            pct = st.number_input("% do CDI", value=100.0)
+        selic_h = df["Selic"].iloc[-1]; taxa = 0.0
+
+        if tipo == "Pós-fixado (CDI)":
+            pct = st.number_input("Rentabilidade (% do CDI)", min_value=0.0, value=100.0)
             taxa = selic_h * (pct/100)
-        elif "IPCA" in tipo:
-            fx = st.number_input("Taxa Fixa (%)", value=6.0)
-            taxa = ((1+focus_data["IPCA_Proj"]/100)*(1+fx/100)-1)*100
+            st.caption(f"CDI Atual (Ref. Selic): {selic_h:.2f}% a.a.")
+            st.caption(f"CDI Atual: {selic_h:.2f}% a.a.")
+        elif tipo == "IPCA +":
+            fx = st.number_input("Taxa Fixa (IPCA + %)", min_value=0.0, value=6.0)
+            taxa = ((1+ipca_proj/100)*(1+fx/100)-1)*100
+            st.caption(f"IPCA Projetado (Focus): {ipca_proj:.2f}% a.a.")
+            st.caption(f"IPCA Proj: {ipca_proj:.2f}% a.a.")
         else:
-            taxa = st.number_input("Taxa Pré (% a.a.)", value=12.0)
+            taxa = st.number_input("Taxa Pré-fixada (% a.a.)", min_value=0.0, value=12.0)
 
-    with col_out:
-        periods = anos * 12
-        r_men = (1+taxa/100)**(1/12)-1
-        vals = [ini]
-        curr = ini
-        for _ in range(periods):
-            curr = curr * (1+r_men) + mes
-            vals.append(curr)
-        
-        c_res1, c_res2 = st.columns(2)
-        c_res1.metric("Total Acumulado", f"R$ {curr:,.2f}")
-        c_res1.metric("Total Investido", f"R$ {ini + (mes*periods):,.2f}")
-        
-        fig_sim = go.Figure()
-        fig_sim.add_trace(go.Scatter(y=vals, fill='tozeroy', line=dict(color=C_ACCENT)))
-        fig_sim.update_layout(template="plotly_white", title="Evolução Patrimonial", height=350)
-        st.plotly_chart(fig_sim, use_container_width=True)
+    periods = anos * 12
+    r_mensal = (1+taxa/100)**(1/12)-1
+    bal = ini
+    inv = ini
+    evol = [ini]
+    bal = ini; inv = ini; evol = [ini]
 
+    for _ in range(periods):
+        bal = bal * (1+r_mensal) + mes
+@@ -301,61 +363,47 @@ def card(col, lbl, val, sub, border):
+        st.markdown("#### Resultado Projetado")
+        r1, r2, r3 = st.columns(3)
+        def result_card(col, label, value, color):
+            col.markdown(f"""
+            <div style="background-color:white; padding:15px; border-radius:8px; border:1px solid #E2E8F0; text-align:center;">
+                <div style="font-size:0.8rem; color:#64748B; font-weight:bold; margin-bottom:5px;">{label}</div>
+                <div style="font-size:1.4rem; color:{color}; font-weight:800;">{value}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            col.markdown(f"<div style='background-color:white; padding:15px; border-radius:8px; border:1px solid #E2E8F0; text-align:center;'><div style='font-size:0.8rem; color:#64748B; font-weight:bold; margin-bottom:5px;'>{label}</div><div style='font-size:1.4rem; color:{color}; font-weight:800;'>{value}</div></div>", unsafe_allow_html=True)
+
+        result_card(r1, "TOTAL INVESTIDO", f"R$ {inv:,.2f}", "#334155")
+        result_card(r2, "SALDO BRUTO", f"R$ {bal:,.2f}", C_ACCENT)
+        result_card(r3, "RENDIMENTO", f"R$ {bal-inv:,.2f}", C_REAL)
+
+        st.markdown("###")
+        
+        fig_s = go.Figure()
+        fig_s.add_trace(go.Scatter(y=evol, x=list(range(len(evol))), fill='tozeroy', line=dict(color=C_ACCENT, width=3), name="Patrimônio"))
+        fig_s.update_layout(
+            template="plotly_white", 
+            height=350, 
+            margin=dict(t=20,l=0,r=0,b=0),
+            xaxis=dict(showgrid=False, title="Meses"),
+            yaxis=dict(showgrid=True, gridcolor="#E2E8F0", tickprefix="R$ ")
+        )
+        fig_s.add_trace(go.Scatter(y=evol, x=list(range(len(evol))), fill='tozeroy', line=dict(color=C_ACCENT, width=3), name="Patrimônio Total"))
+        fig_s.update_layout(template="plotly_white", height=350, margin=dict(t=20,l=0,r=0,b=0), xaxis=dict(showgrid=False, title="Meses"), yaxis=dict(showgrid=True, gridcolor="#E2E8F0", tickprefix="R$ "))
+        st.plotly_chart(fig_s, use_container_width=True)
+
+# ==============================================================================
+# 5. GLOSSARIO
+# ==============================================================================
 elif nav == "Glossário":
     st.markdown("<h1>Glossário Financeiro</h1>", unsafe_allow_html=True)
-    st.info("Dicionário de termos utilizados na aplicação.")
-    # (Mantido estrutura simples para brevidade, já que o foco era o dashboard)
-    cols = st.columns(2)
-    with cols[0]:
-        st.markdown("**Selic:** Taxa básica de juros da economia.")
-        st.markdown("**IPCA:** Índice oficial de inflação.")
-    with cols[1]:
-        st.markdown("**Focus:** Relatório semanal do BC com projeções de mercado.")
-        st.markdown("**IGP-M:** Inflação composta, muito usada em aluguéis.")
+    st.markdown("Entenda os principais termos utilizados no mercado e na calculadora.")
+    
+    st.markdown("<p class='section-caption'>Entenda os principais termos utilizados no mercado e na calculadora.</p>", unsafe_allow_html=True)
+    def gloss_card(title, text):
+        st.markdown(f"""
+        <div class="glossary-card">
+            <div class="gloss-title">{title}</div>
+            <div class="gloss-text">{text}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("### Indicadores de Mercado")
+        st.markdown(f"<div class='glossary-card'><div class='gloss-title'>{title}</div><div class='gloss-text'>{text}</div></div>", unsafe_allow_html=True)
+
+    st.markdown("### Indicadores Principais")
+    c1, c2 = st.columns(2)
+    with c1:
+        gloss_card("Taxa Selic", "É a taxa básica de juros da economia brasileira. Ela influencia todas as outras taxas de juros do país, como as de empréstimos, financiamentos e aplicações financeiras. Definida pelo COPOM a cada 45 dias.")
+        gloss_card("Taxa Selic", "É a taxa básica de juros da economia brasileira. Ela influencia todas as outras taxas de juros do país. Definida pelo COPOM.")
+        st.markdown("###")
+        gloss_card("IPCA", "Índice Nacional de Preços ao Consumidor Amplo. É o termômetro oficial da inflação no Brasil.")
+        st.markdown("###")
+        gloss_card("IPCA", "Índice Nacional de Preços ao Consumidor Amplo. É o termômetro oficial da inflação no Brasil. Se o IPCA sobe, o seu dinheiro perde poder de compra.")
+        gloss_card("PIB", "Produto Interno Bruto. A soma de todos os bens e serviços finais produzidos pelo país.")
+    with c2:
+        gloss_card("CDI (Certificado de Depósito Interbancário)", "É a taxa que os bancos cobram para emprestar dinheiro entre si. Na prática, o CDI anda quase igual à Selic. A maioria dos investimentos de Renda Fixa (CDB, LCI) rende uma % do CDI.")
+        gloss_card("CDI", "Taxa que os bancos cobram para emprestar dinheiro entre si. Acompanha de perto a Selic e baliza a Renda Fixa.")
+        st.markdown("###")
+        gloss_card("Juro Real", "É o ganho 'de verdade'. Se você ganhou 10% no investimento, mas a inflação foi 4%, seu Juro Real foi de aproximadamente 6%. É o quanto seu patrimônio cresceu acima do aumento dos preços.")
+
+        gloss_card("IGP-M", "Índice Geral de Preços - Mercado. Conhecido como 'inflação do aluguel', é muito usado em reajustes de contratos.")
+        st.markdown("###")
+        gloss_card("Dólar PTAX", "Média das taxas de compra e venda de dólar apurada pelo Banco Central.")
+    
+    st.markdown("---")
+    st.markdown("### Tipos de Rentabilidade")
+    c3, c4, c5 = st.columns(3)
+    with c3:
+        gloss_card("Pós-fixado", "Você não sabe exatamente quanto vai ganhar em Reais no final. A rentabilidade segue um índice (ex: 100% do CDI). Se o juro subir, você ganha mais. Se cair, ganha menos. Ideal para reserva de emergência.")
+    with c4:
+        gloss_card("Pré-fixado", "A taxa é combinada na hora da compra (ex: 12% ao ano). Não importa se a Selic subir ou cair, ou se a inflação explodir, você receberá exatamente os 12% combinados.")
+    with c5:
+        gloss_card("Híbrido (IPCA+)", "Combina os dois mundos. Ele paga uma parte fixa (ex: 6%) mais a variação da inflação (IPCA). É o investimento mais seguro para manter seu poder de compra no longo prazo.")
+
+    st.markdown("---")
+    st.caption("Fonte dos dados: Banco Central do Brasil (SGS e Focus). Atualização automática.")
+    with c3: gloss_card("Pós-fixado", "A rentabilidade segue um índice (ex: 100% do CDI). Se o juro subir, você ganha mais.")
+    with c4: gloss_card("Pré-fixado", "A taxa é combinada na hora da compra (ex: 12% ao ano). Não varia com o mercado.")
+    with c5: gloss_card("Híbrido (IPCA+)", "Paga uma parte fixa mais a inflação (IPCA). Protege o poder de compra.")
+    st.markdown("---"); st.caption("Fonte dos dados: Banco Central do Brasil (SGS e Focus). Atualização automática.")
